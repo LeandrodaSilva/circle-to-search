@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Desenho de Círculo com Modal de Resultados Moderno</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      position: relative;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    /* Conteúdo de exemplo */
+    .content {
+      padding: 20px;
+    }
+    .box {
+      width: 200px;
+      height: 100px;
+      background-color: #f0f0f0;
+      margin: 20px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Canvas para desenho */
+    #drawingCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+    }
+    /* Estilos para o modal */
+    .modal {
+      display: none; /* Oculto por padrão */
+      position: fixed;
+      z-index: 10000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto; /* Habilita rolagem se necessário */
+      background-color: rgba(0, 0, 0, 0.5); /* Fundo escuro com opacidade */
+    }
+    .modal-content {
+      background-color: #fff;
+      margin: 5% auto; /* Centraliza verticalmente */
+      padding: 20px;
+      border-radius: 10px; /* Bordas suaves */
+      width: 90%;
+      max-width: 600px;
+      position: relative;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3); /* Sombra suave */
+    }
+    .close-button {
+      color: #aaa;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+      position: absolute;
+      right: 15px;
+      top: 10px;
+    }
+    .close-button:hover,
+    .close-button:focus {
+      color: black;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    #selectedTextContainer {
+      margin-bottom: 20px;
+      font-size: 16px;
+      line-height: 1.5;
+      color: #333;
+    }
+    #capturedImage {
+      max-width: 100%;
+      height: auto;
+      border-radius: 10px; /* Bordas suaves na imagem */
+      display: block;
+      margin: 0 auto;
+    }
+    h2 {
+      text-align: center;
+      margin-top: 0;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="content">
+    <h1>Bem-vindo ao Site de Teste</h1>
+    <p>Este é um parágrafo de exemplo para testar a seleção de texto.</p>
+    <div class="box">Elemento Div de Exemplo</div>
+    <p>Outro parágrafo com <strong>texto em negrito</strong> e <em>itálico</em>.</p>
+  </div>
+
+  <canvas id="drawingCanvas"></canvas>
+
+  <!-- Modal de Resultados -->
+  <div id="resultModal" class="modal">
+    <div class="modal-content">
+      <span class="close-button">&times;</span>
+      <h2>Conteúdo Selecionado</h2>
+      <div id="selectedTextContainer"></div>
+      <img id="capturedImage" src="" alt="Imagem Capturada">
+    </div>
+  </div>
+
+  <!-- Biblioteca html2canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <script>
+    // Configuração inicial do canvas
+    const canvas = document.getElementById('drawingCanvas');
+    const ctx = canvas.getContext('2d');
+    resizeCanvas();
+
+    window.addEventListener('resize', resizeCanvas);
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    let drawing = false;
+    let points = [];
+    let animationFrameId;
+    let transitioning = false;
+    let transitionProgress = 0;
+
+    // Variáveis para o círculo perfeito
+    let centerX, centerY, radius;
+
+    // Partículas
+    let particles = [];
+    let particlesAnimationId;
+
+    // Elementos do modal
+    const modal = document.getElementById('resultModal');
+    const closeButton = document.querySelector('.close-button');
+    const selectedTextContainer = document.getElementById('selectedTextContainer');
+    const capturedImageElement = document.getElementById('capturedImage');
+
+    // Adicionar event listener para a tecla ESC
+    window.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        cancelDrawing();
+      }
+    });
+
+    closeButton.addEventListener('click', function() {
+      modal.style.display = 'none';
+    });
+
+    window.addEventListener('click', function(event) {
+      if (event.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
+    function cancelDrawing() {
+      drawing = false;
+      transitioning = false;
+      points = [];
+      particles = [];
+      transitionProgress = 0;
+
+      // Cancelar animações
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      if (particlesAnimationId) {
+        cancelAnimationFrame(particlesAnimationId);
+        particlesAnimationId = null;
+      }
+
+      // Limpar o canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    canvas.addEventListener('mousedown', function(e) {
+      if (!transitioning) {
+        drawing = true;
+        points = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        points.push({ x: e.clientX, y: e.clientY });
+      }
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+      if (drawing && !transitioning) {
+        const x = e.clientX;
+        const y = e.clientY;
+
+        points.push({ x: x, y: y });
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawFreehandCircle();
+
+        // Verificar se o círculo foi fechado
+        const dx = x - points[0].x;
+        const dy = y - points[0].y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 10 && points.length > 10) {
+          drawing = false;
+          calculatePerfectCircle();
+          transitioning = true;
+          animateTransition();
+        }
+      }
+    });
+
+    canvas.addEventListener('mouseup', function(e) {
+      if (drawing && !transitioning) {
+        drawing = false;
+        calculatePerfectCircle();
+        transitioning = true;
+        animateTransition();
+      }
+    });
+
+    // Função para desenhar o círculo livremente
+    function drawFreehandCircle() {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Função para calcular o círculo perfeito
+    function calculatePerfectCircle() {
+      // Cálculo do círculo perfeito baseado nos pontos desenhados
+      const N = points.length;
+      let sumX = 0, sumY = 0;
+      let sumX2 = 0, sumY2 = 0;
+      let sumXY = 0, sumX3 = 0, sumY3 = 0;
+      let sumX1Y2 = 0, sumX2Y1 = 0;
+
+      for (let i = 0; i < N; i++) {
+        const xi = points[i].x;
+        const yi = points[i].y;
+        const xi2 = xi * xi;
+        const yi2 = yi * yi;
+
+        sumX += xi;
+        sumY += yi;
+        sumX2 += xi2;
+        sumY2 += yi2;
+        sumXY += xi * yi;
+        sumX3 += xi2 * xi;
+        sumY3 += yi2 * yi;
+        sumX1Y2 += xi * yi2;
+        sumX2Y1 += xi2 * yi;
+      }
+
+      const C = N * sumX2 - sumX * sumX;
+      const D = N * sumXY - sumX * sumY;
+      const E = N * sumY2 - sumY * sumY;
+      const G = 0.5 * (N * sumX3 + N * sumX1Y2 - (sumX2 + sumY2) * sumX);
+      const H = 0.5 * (N * sumY3 + N * sumX2Y1 - (sumX2 + sumY2) * sumY);
+
+      const denominator = C * E - D * D;
+      if (denominator === 0) {
+        centerX = canvas.width / 2;
+        centerY = canvas.height / 2;
+        radius = 50;
+      } else {
+        centerX = (G * E - D * H) / denominator;
+        centerY = (C * H - D * G) / denominator;
+        radius = Math.sqrt((sumX2 - 2 * centerX * sumX + N * centerX * centerX +
+          sumY2 - 2 * centerY * sumY + N * centerY * centerY) / N);
+      }
+    }
+
+    // Variável para armazenar o texto selecionado
+    let selectedTexts = [];
+
+    // Função para animar a transição para o círculo perfeito
+    function animateTransition() {
+      if (transitionProgress < 1) {
+        transitionProgress += 0.02;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawTransitionCircle(transitionProgress);
+        animationFrameId = requestAnimationFrame(animateTransition);
+      } else {
+        transitioning = false;
+        transitionProgress = 0;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Desenhar o círculo perfeito
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Aplicar opacidade à área externa
+        applyOpacity();
+
+        // Iniciar animação das partículas na borda do círculo
+        initParticles();
+        animateParticles();
+
+        // Realizar outras ações (capturar imagem, detectar elementos, etc.)
+        detectElementsInCircle();
+        captureArea();
+      }
+    }
+
+    function drawTransitionCircle(progress) {
+      // Interpolar entre o círculo desenhado e o círculo perfeito
+      ctx.beginPath();
+      if (progress < 0.5) {
+        // Desenhar o círculo desenhado pelo usuário, diminuindo sua opacidade
+        ctx.globalAlpha = 1 - progress * 2;
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        // Desenhar o círculo perfeito, aumentando sua opacidade
+        ctx.globalAlpha = (progress - 0.5) * 2;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function applyOpacity() {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, true);
+      ctx.fill('evenodd');
+      ctx.restore();
+    }
+
+    function detectElementsInCircle() {
+      const elements = document.querySelectorAll('body *:not(#drawingCanvas):not(.modal):not(.modal-content):not(.close-button)');
+      selectedTexts = [];
+
+      elements.forEach(elem => {
+        const rect = elem.getBoundingClientRect();
+        const elemCenterX = rect.left + rect.width / 2 + window.scrollX;
+        const elemCenterY = rect.top + rect.height / 2 + window.scrollY;
+
+        const dx = elemCenterX - (centerX + window.scrollX);
+        const dy = elemCenterY - (centerY + window.scrollY);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= radius) {
+          if (elem.innerText && elem.innerText.trim() !== '') {
+            selectedTexts.push(elem.innerText.trim());
+          }
+        }
+      });
+
+      if (selectedTexts.length > 0) {
+        console.log('Textos selecionados:', selectedTexts);
+      } else {
+        console.log('Nenhum elemento encontrado dentro do círculo.');
+      }
+    }
+
+    function captureArea() {
+      // Calcular a área de captura considerando o scroll
+      const circleLeft = centerX - radius + window.scrollX;
+      const circleTop = centerY - radius + window.scrollY;
+      const circleWidth = radius * 2;
+      const circleHeight = radius * 2;
+
+      html2canvas(document.body, {
+        x: circleLeft,
+        y: circleTop,
+        width: circleWidth,
+        height: circleHeight,
+        windowWidth: document.documentElement.scrollWidth,
+        windowHeight: document.documentElement.scrollHeight
+      }).then(function(canvasCapture) {
+        // Criar um canvas para desenhar a imagem circular
+        const canvasTemp = document.createElement('canvas');
+        const ctxTemp = canvasTemp.getContext('2d');
+        canvasTemp.width = circleWidth;
+        canvasTemp.height = circleHeight;
+
+        // Criar uma máscara circular
+        ctxTemp.beginPath();
+        ctxTemp.arc(radius, radius, radius, 0, 2 * Math.PI);
+        ctxTemp.closePath();
+        ctxTemp.clip();
+
+        // Desenhar a imagem capturada no canvas
+        ctxTemp.drawImage(canvasCapture, 0, 0);
+
+        // Converter o canvas para base64
+        const base64Image = canvasTemp.toDataURL();
+        localStorage.setItem('capturedImage', base64Image);
+        console.log('Imagem capturada salva no localStorage.');
+
+        // Exibir o modal com o texto selecionado e a imagem capturada
+        displayModal(base64Image);
+      });
+    }
+
+    function displayModal(imageData) {
+      // Exibir textos selecionados
+      if (selectedTexts.length > 0) {
+        selectedTextContainer.innerHTML = '<p>' + selectedTexts.join('</p><p>') + '</p>';
+      } else {
+        selectedTextContainer.innerHTML = '<p>Nenhum texto selecionado.</p>';
+      }
+
+      // Exibir imagem capturada
+      capturedImageElement.src = imageData;
+
+      // Exibir o modal
+      modal.style.display = 'block';
+    }
+
+    // Funções para animação das partículas na borda do círculo
+
+    function initParticles() {
+      particles = [];
+      const numParticles = 400;
+      for (let i = 0; i < numParticles; i++) {
+        const angle = Math.random() * 2 * Math.PI;
+        particles.push({
+          angle: angle,
+          radiusOffset: (Math.random() - 0.5) * 3, // Pequena variação no raio
+          size: Math.random() * 0.5 + 0.5, // Tamanho reduzido das partículas
+          speed: (Math.random() * 0.5 + 0.5) * 0.005, // Velocidade angular reduzida
+          hue: Math.floor(Math.random() * 360),
+          life: 1
+        });
+      }
+    }
+
+    function updateParticles() {
+      particles.forEach((p, index) => {
+        // Atualizar ângulo
+        p.angle += p.speed;
+
+        // Manter o ângulo entre 0 e 2*PI
+        if (p.angle > 2 * Math.PI) {
+          p.angle -= 2 * Math.PI;
+        }
+
+        // Calcular posição
+        p.x = centerX + (radius + p.radiusOffset) * Math.cos(p.angle);
+        p.y = centerY + (radius + p.radiusOffset) * Math.sin(p.angle);
+
+        // Atualizar vida
+        p.life *= 0.995;
+
+        // Remover partículas com vida muito baixa
+        if (p.life < 0.05) {
+          particles.splice(index, 1);
+        }
+      });
+    }
+
+    function drawParticles() {
+      particles.forEach(p => {
+        ctx.fillStyle = `hsla(${p.hue}, 100%, 50%, ${p.life})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+    }
+
+    function animateParticles() {
+      if (particles.length > 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Redesenhar o círculo perfeito
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Aplicar opacidade à área externa
+        applyOpacity();
+
+        updateParticles();
+        drawParticles();
+
+        particlesAnimationId = requestAnimationFrame(animateParticles);
+      } else {
+        cancelAnimationFrame(particlesAnimationId);
+        particlesAnimationId = null;
+      }
+    }
+  </script>
+</body>
+</html>
